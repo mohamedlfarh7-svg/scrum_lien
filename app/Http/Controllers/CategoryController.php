@@ -13,7 +13,7 @@ class CategoryController extends Controller
      */
     public function index(Request $request)
     {
-        $categories = Category::all();
+        $categories = Category::withCount('links')->latest()->get();
         return view('categories.index', compact('categories'));
     
     }

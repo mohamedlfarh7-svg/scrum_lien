@@ -6,32 +6,35 @@ use Illuminate\Http\Request;
 use App\Models\Link;
 use App\Models\Tag;
 use App\Models\Category;
+use Illuminate\Support\Facades\Auth;
 
 class LinkController extends Controller
 {
-    
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request)
     {
-        $query = Link::with(['tags', 'category']);
+        $query = Link::with(['category', 'tags'])->where('user_id', Auth::id());
 
-        if($request->filled('search')){
-            $search =  $request->search;
-            $query->where('title', 'like', "%$search%");
+        if ($request->filled('search')) {
+            $query->where('title', 'like', '%' . $request->search . '%');
         }
-        if($request->filled('category_id')){
-        $query->where('category_id', $request->category_id);
+
+        if ($request->filled('category')) {
+            $query->where('category_id', $request->category);
         }
+
+        if ($request->filled('tag')) {
+            $query->whereHas('tags', function($q) use ($request) {
+                $q->where('tags.id', $request->tag);
+            });
+        }
+
         $links = $query->latest()->get();
         $categories = Category::all();
-        return view('links.index', compact('links', 'categories'));
+        $tags = Tag::all();
+
+        return view('links.index', compact('links', 'categories', 'tags'));
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create()
     {
         $categories = Category::all();
@@ -39,42 +42,72 @@ class LinkController extends Controller
         return view('links.create', compact('categories', 'tags'));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-public function store(Request $request)
-{
-    $data = $request->validate([
-        'title'       => 'required|string|max:255',
-        'url'         => 'required|url',
-        'category_id' => 'required|exists:categories,id',
-        'tags'        => 'required|array',
-        'tags.*'      => 'exists:tags,id',
-    ]);
-
-    $link = Link::create($data);
-    
-    $link->tags()->attach($request->tags);
-
-    return redirect()->route('links.index')->with('success', 'Link added successfully');
-}
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
+    public function store(Request $request)
     {
-        $link = Link::with(['category', 'tags'])->findOrFail($id);
+        $data = $request->validate([
+            'title'       => 'required|string|max:255',
+            'url'         => 'required|url',
+            'category_id' => 'required|exists:categories,id',
+            'tags'        => 'required|array',
+            'tags.*'      => 'exists:tags,id',
+        ]);
+
+        $data['user_id'] = Auth::id();
+
+        $link = Link::create($data);
+        $link->tags()->attach($request->tags);
+
+        return redirect()->route('links.index')->with('success', 'Link added successfully');
+    }
+
+    public function show(Link $link)
+    {
+        if ($link->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $link->load(['category', 'tags']);
         return view('links.show', compact('link'));
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
+    public function edit(Link $link)
     {
-        $link = Link::findOrFail($id);
-        $link->delete();
+        if ($link->user_id !== Auth::id()) {
+            abort(403);
+        }
 
+        $categories = Category::all();
+        $tags = Tag::all();
+        return view('links.edit', compact('link', 'categories', 'tags'));
+    }
+
+    public function update(Request $request, Link $link)
+    {
+        if ($link->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $data = $request->validate([
+            'title'       => 'required|string|max:255',
+            'url'         => 'required|url',
+            'category_id' => 'required|exists:categories,id',
+            'tags'        => 'required|array',
+            'tags.*'      => 'exists:tags,id',
+        ]);
+
+        $link->update($data);
+        $link->tags()->sync($request->tags);
+
+        return redirect()->route('links.index')->with('success', 'Link updated successfully');
+    }
+
+    public function destroy(Link $link)
+    {
+        if ($link->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $link->delete();
         return redirect()->route('links.index')->with('success', 'Link deleted successfully');
     }
 }
